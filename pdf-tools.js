@@ -1,28 +1,117 @@
-const fs = require('fs');
-const path = require('path');
-const pdfParse = require('pdf-parse');
-const pdfjsLib = require("pdfjs-dist/legacy/build/pdf");
-const ExcelJS = require('exceljs');
+import fs from 'fs';
+import { fileURLToPath } from 'url';
+import path from 'path';
+// const pdfParse = require('pdf-parse');
+// const pdfjsLib = require("pdfjs-dist/build/pdf");
+import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+import ExcelJS from 'exceljs';
+
+
+// Required to resolve __dirname in ES module context
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Path to cmaps folder inside node_modules
+// const cMapUrl = path.resolve(__dirname, 'node_modules/pdfjs-dist/cmaps/');
+const cMapUrl = path.join(__dirname, 'node_modules/pdfjs-dist/cmaps/'); // ✅ MUST end with "/"
+
 
 async function extractTableToExcel(pdfPath) {
-    const loadingTask = pdfjsLib.getDocument(pdfPath);
+    const loadingTask = getDocument({
+        url: pdfPath,
+        cMapUrl: 'node_modules/pdfjs-dist/cmaps/',
+        cMapPacked: true, // true for PDF.js default cMap format
+    });
+    console.log(123);
     const pdfDocument = await loadingTask.promise;
     console.log(`Number of pages: ${pdfDocument.numPages}`);
-return;
-    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+
+    const result = [];
+
+    for (let pageNum = 3; pageNum <= 4; pageNum++) {
         const page = await pdfDocument.getPage(pageNum);
-        const textContent = await page.getTextContent();
+        const content = await page.getTextContent();
+        // console.log(content.items.splice(0, 50).filter(item => item.str.trim())); return;
 
-        console.log(`\n--- Page ${pageNum} Text Items ---`);
+        // Step 1: group by y position (rows)
+        const rows = {};
+        const leftRows = {};
+        const rightRows = {};
+        for (const item of content.items) {
+            // console.log(item); return;
+            const text = item.str.trim();
+            if (!text) continue;
 
-        // textContent.items is an array of text snippets with position info
-        textContent.items.forEach(item => {
-            // item.str = text string
-            // item.transform = 6-value array for text transform matrix [a,b,c,d,e,f]
-            // You can use item.transform[5] (y pos), item.transform[4] (x pos) for layout
-            console.log(`Text: "${item.str}", x: ${item.transform[4]}, y: ${item.transform[5]}`);
-        });
+            const y = Math.floor(item.transform[5]);    // y-position
+            const x = item.transform[4];                // x-position
+
+            if (x < 270) {
+                if (!leftRows[y]) {
+                    leftRows[y] = [];
+                }
+                leftRows[y].push({ text, x });
+            } else {
+                if (!rightRows[y]) {
+                    rightRows[y] = [];
+                }
+                rightRows[y].push({ text, x });
+            }
+
+            let finalY = y;
+            if (rows[y]) {
+                finalY = y;
+            } else if (rows[y - 1]) {
+                finalY = y - 1;
+            } else if (rows[y + 1]) {
+                finalY = y + 1;
+            }
+
+            if (!rows[finalY]) {
+                rows[finalY] = [];
+            }
+            rows[finalY].push({ text, x });
+        }
+        // console.log(leftRows); return;
+        // const rows = leftRows.map((item, index) => [...item, ...rightRows[index]]);
+        // console.log(rows); return;
+        const sortedRows = Object.entries(rows)
+            .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
+            .map(([_, items]) => {
+                return items.sort((a, b) => a.x - b.x).map(i => i.text);
+            });
+        result.push(...sortedRows);
+        // return;
+        // // Step 2: sort rows top-to-bottom, then columns left-to-right
+        // const leftSortedRows = Object.entries(leftRows)
+        //     .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
+        //     .map(([_, items]) => {
+        //         return items.sort((a, b) => a.x - b.x).map(i => i.text);
+        //     });
+        // const rightSortedRows = Object.entries(rightRows)
+        //     .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
+        //     .map(([_, items]) => {
+        //         return items.sort((a, b) => a.x - b.x).map(i => i.text);
+        //     });
+        // // console.log(leftSortedRows);
+        // result.push(...leftSortedRows);
+        // result.push(...rightSortedRows);
     }
+    // return;
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet();
+
+    for (const row of result) {
+        if (row.length === 0 || row.every(cell => cell.trim() === '')) continue;
+        sheet.addRow(row);
+    }
+
+    await workbook.xlsx.writeFile('output.xlsx');
+    return;
+
+    const csv = result.map(row => row.join(',')).join('\n');
+    fs.writeFileSync('output.csv', csv, 'utf-8');
+    return;
 
     const dataBuffer = fs.readFileSync(pdfPath);
     pdf2table.parse(dataBuffer, (err, rows, rowsdebug) => {
@@ -65,8 +154,8 @@ return;
     // Assuming each row is separated by '\n' and columns by spaces or tabs
     // const lines = pdfData.text.split('\n').filter(line => line.trim() !== '');
 
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Extracted Table');
+    // const workbook = new ExcelJS.Workbook();
+    // const sheet = workbook.addWorksheet('Extracted Table');
 
     lines.forEach((line, index) => {
         // Split by multiple spaces or tabs
