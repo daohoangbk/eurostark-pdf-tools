@@ -1,3 +1,4 @@
+import readline from 'readline';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
 import path from 'path';
@@ -6,6 +7,43 @@ import path from 'path';
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
 import ExcelJS from 'exceljs';
 
+
+// Create readline interface
+const rl = readline.createInterface({
+    input: process.stdin,
+    output: process.stdout
+});
+
+// Ask for input
+rl.question('📄 Enter path to PDF file: ', async (rawInput) => {
+    if (!rawInput.trim()) {
+        console.error('❌ No file path provided.');
+        rl.close();
+        process.exit(1);
+    }
+    // pdfPath = "E:\WORK\eurostark\eurostark-pdf-tools\25000970 SLS DOCS.pdf";
+    rawInput = rawInput.replace(/^["']|["']$/g, '');
+
+    // Step 2: Replace backslashes with forward slashes
+    rawInput = rawInput.replace(/\\/g, '/');
+
+    // Step 3: Normalize and resolve to absolute path
+    const pdfPath = path.resolve(rawInput);
+
+    // Step 4: Validate path
+    if (!fs.existsSync(pdfPath)) {
+        console.error("❌ File does not exist:", pdfPath);
+        process.exit(1);
+    }
+
+    try {
+        await extractTableToExcel(pdfPath); // your main function
+    } catch (err) {
+        console.error('❌ Error:', err.message);
+    }
+
+    rl.close(); // always close the interface when done
+});
 
 // Required to resolve __dirname in ES module context
 // const __filename = fileURLToPath(import.meta.url);
@@ -17,6 +55,9 @@ import ExcelJS from 'exceljs';
 
 
 async function extractTableToExcel(pdfPath) {
+    //  console.log(pdfPath); return;
+    // pdfPath = path.resolve(pdfPath);
+    // console.log(pdfPath); console.log(pdfPath); return;
     const loadingTask = getDocument({
         url: pdfPath,
         cMapUrl: 'node_modules/pdfjs-dist/cmaps/',
@@ -125,4 +166,4 @@ async function extractKoreaZincCompanyPdf(pdfDocument) {
     return result;
 }
 
-extractTableToExcel('25000970 SLS DOCS.pdf', 'output.xlsx');
+// extractTableToExcel('25000970 SLS DOCS.pdf');
