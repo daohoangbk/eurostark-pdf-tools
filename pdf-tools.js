@@ -17,6 +17,55 @@ const cMapUrl = path.join(__dirname, 'node_modules/pdfjs-dist/cmaps/'); // ✅ M
 
 
 async function extractTableToExcel(pdfPath) {
+    const pdfData = await pdfParse(dataBuffer);
+
+    const pdfBaseName = path.parse(pdfPath).name;
+    const excelPath = pdfBaseName + '.xlsx';
+
+    const pdfText = pdfData.text;
+    // const lines = pdfData.text
+    //   .split('\n')
+    //   .map(line => line.trim())
+    //   .filter(line => line.length > 0); // Remove empty lines
+
+    // fs.writeFileSync('test.txt', lines.join('\n'), 'utf-8');
+    // console.log(pdfText);return;
+    let excelData = [];
+
+    if (pdfText.includes('orea Zinc Co.,Ltd')) {
+        excelData = extractKoreaZincCompanyPdf(pdfData, pdfText);
+    } else {
+
+    }
+
+    const workbook = new ExcelJS.Workbook();
+    const sheet = workbook.addWorksheet();
+
+    for (const row of excelData) {
+        if (row.length === 0 || row.every(cell => cell.trim() === '')) continue;
+        sheet.addRow(row);
+    }
+
+    await workbook.xlsx.writeFile('output.xlsx');
+    return;
+
+    // Assuming each row is separated by '\n' and columns by spaces or tabs
+    // const lines = pdfData.text.split('\n').filter(line => line.trim() !== '');
+
+    // const workbook = new ExcelJS.Workbook();
+    // const sheet = workbook.addWorksheet('Extracted Table');
+
+    lines.forEach((line, index) => {
+        // Split by multiple spaces or tabs
+        const row = line.trim().split(/\s{2,}|\t+/);
+        sheet.addRow(row);
+    });
+
+    await workbook.xlsx.writeFile(excelPath);
+    console.log(`✅ Excel file saved to ${excelPath}`);
+}
+
+async function extractKoreaZincCompanyPdf(pdfData, pdfText) {
     const loadingTask = getDocument({
         url: pdfPath,
         cMapUrl: 'node_modules/pdfjs-dist/cmaps/',
@@ -80,122 +129,8 @@ async function extractTableToExcel(pdfPath) {
                 return items.sort((a, b) => a.x - b.x).map(i => i.text);
             });
         result.push(...sortedRows);
-        // return;
-        // // Step 2: sort rows top-to-bottom, then columns left-to-right
-        // const leftSortedRows = Object.entries(leftRows)
-        //     .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
-        //     .map(([_, items]) => {
-        //         return items.sort((a, b) => a.x - b.x).map(i => i.text);
-        //     });
-        // const rightSortedRows = Object.entries(rightRows)
-        //     .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
-        //     .map(([_, items]) => {
-        //         return items.sort((a, b) => a.x - b.x).map(i => i.text);
-        //     });
-        // // console.log(leftSortedRows);
-        // result.push(...leftSortedRows);
-        // result.push(...rightSortedRows);
     }
-    // return;
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet();
-
-    for (const row of result) {
-        if (row.length === 0 || row.every(cell => cell.trim() === '')) continue;
-        sheet.addRow(row);
-    }
-
-    await workbook.xlsx.writeFile('output.xlsx');
-    return;
-
-    const csv = result.map(row => row.join(',')).join('\n');
-    fs.writeFileSync('output.csv', csv, 'utf-8');
-    return;
-
-    const dataBuffer = fs.readFileSync(pdfPath);
-    pdf2table.parse(dataBuffer, (err, rows, rowsdebug) => {
-        if (err) return console.error(err);
-
-        console.log("✅ Table rows:");
-        console.log(rows); // rows = array of arrays
-
-        // Optional: Write to CSV
-        const csv = rows.map(row => row.join(',')).join('\n');
-        fs.writeFileSync('output.csv', csv, 'utf8');
-        console.log('📄 Saved as output.csv');
-    });
-    return;
-
-    const pdfData = await pdfParse(dataBuffer);
-
-    const pdfBaseName = path.parse(pdfPath).name;
-    const excelPath = pdfBaseName + '.xlsx';
-
-    const pdfText = pdfData.text;
-    // const lines = pdfData.text
-    //   .split('\n')
-    //   .map(line => line.trim())
-    //   .filter(line => line.length > 0); // Remove empty lines
-
-    // fs.writeFileSync('test.txt', lines.join('\n'), 'utf-8');
-    // console.log(pdfText);return;
-    let excelData = [];
-
-    if (pdfText.includes('orea Zinc Co.,Ltd')) {
-        pdfTableExtractor(pdfPath)
-        return;
-        excelData = extractKoreaZincCompanyPdf(pdfData, pdfText);
-    } else {
-
-    }
-    return;
-
-    // Assuming each row is separated by '\n' and columns by spaces or tabs
-    // const lines = pdfData.text.split('\n').filter(line => line.trim() !== '');
-
-    // const workbook = new ExcelJS.Workbook();
-    // const sheet = workbook.addWorksheet('Extracted Table');
-
-    lines.forEach((line, index) => {
-        // Split by multiple spaces or tabs
-        const row = line.trim().split(/\s{2,}|\t+/);
-        sheet.addRow(row);
-    });
-
-    await workbook.xlsx.writeFile(excelPath);
-    console.log(`✅ Excel file saved to ${excelPath}`);
-}
-
-function handleSuccess(result) {
-    if (result.pageTables && result.pageTables.length > 0) {
-        console.log("✅ Table detected:", result.pageTables.length, "tables found.");
-    } else {
-        console.log("❌ No tables found.");
-    }
-}
-
-function handleError(err) {
-    console.error("Error:", err);
-}
-
-function extractKoreaZincCompanyPdf(pdfData, pdfText) {
-    console.log(pdfText);
-    return;
-    let excelData = [];
-    // Assuming each row is separated by '\n' and columns by spaces or tabs
-    const lines = pdfData.text.split('\n').filter(line => line.trim() !== '');
-
-    const workbook = new ExcelJS.Workbook();
-    const sheet = workbook.addWorksheet('Extracted Table');
-
-    lines.forEach((line, index) => {
-        // Split by multiple spaces or tabs
-        const row = line.trim().split(/\s{2,}|\t+/);
-        sheet.addRow(row);
-    });
-
-    return excelData;
+    return result;
 }
 
 extractTableToExcel('25000970 SLS DOCS.pdf', 'output.xlsx');
