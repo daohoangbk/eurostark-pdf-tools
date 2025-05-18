@@ -55,7 +55,7 @@ rl.question('📄 Enter path to PDF file: ', async (rawInput) => {
 
 
 async function extractTableToExcel(pdfPath) {
-    //  console.log(pdfPath); return;
+    // console.log(pdfPath); return;
     // pdfPath = path.resolve(pdfPath);
     // console.log(pdfPath); console.log(pdfPath); return;
     const loadingTask = getDocument({
@@ -74,8 +74,9 @@ async function extractTableToExcel(pdfPath) {
     // console.log(fullText.includes('Korea Zinc Company'));return;
     if (fullText.includes('Korea Zinc Company')) {
         excelData = await extractKoreaZincCompanyPdf(pdfDocument);
-    } else {
-
+    } else if (fullText.includes('GLENCORE INTERNACIONAL')) {
+        // console.log(123); return;
+        excelData = await extractGlencoreInternacionalPdf(pdfDocument);
     }
     // console.log(excelData); return;
     const pdfDir = path.dirname(pdfPath);
@@ -117,8 +118,6 @@ async function extractKoreaZincCompanyPdf(pdfDocument) {
 
         // Step 1: group by y position (rows)
         const rows = {};
-        const leftRows = {};
-        const rightRows = {};
         for (const item of content.items) {
             // console.log(item); return;
             const text = item.str.trim();
@@ -127,16 +126,53 @@ async function extractKoreaZincCompanyPdf(pdfDocument) {
             const y = Math.floor(item.transform[5]);    // y-position
             const x = item.transform[4];                // x-position
 
-            if (x < 270) {
-                if (!leftRows[y]) {
-                    leftRows[y] = [];
-                }
-                leftRows[y].push({ text, x });
-            } else {
-                if (!rightRows[y]) {
-                    rightRows[y] = [];
-                }
-                rightRows[y].push({ text, x });
+            let finalY = y;
+            if (rows[y]) {
+                finalY = y;
+            } else if (rows[y - 1]) {
+                finalY = y - 1;
+            } else if (rows[y + 1]) {
+                finalY = y + 1;
+            }
+
+            if (!rows[finalY]) {
+                rows[finalY] = [];
+            }
+            rows[finalY].push({ text, x });
+        }
+        // console.log(rows); return;
+        const sortedRows = Object.entries(rows)
+            .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
+            .map(([_, items]) => {
+                return items.sort((a, b) => a.x - b.x).map(i => i.text);
+            });
+        result.push(...sortedRows);
+    }
+    return result;
+}
+
+async function extractGlencoreInternacionalPdf(pdfDocument) {
+    const tableStartY = 164;
+    const tableEndY = 448;
+    const result = [];
+
+    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+        const page = await pdfDocument.getPage(pageNum);
+        const content = await page.getTextContent();
+        // console.log(content.items.splice(800, 50).filter(item => item.str.trim())); return;
+
+        // Step 1: group by y position (rows)
+        const rows = {};
+        for (const item of content.items) {
+            // console.log(item); return;
+            const text = item.str.trim();
+            if (!text) continue;
+
+            const y = Math.floor(item.transform[5]);    // y-position
+            const x = item.transform[4];                // x-position
+
+            if (y < tableStartY || y > tableEndY) {
+                continue;
             }
 
             let finalY = y;
@@ -153,8 +189,6 @@ async function extractKoreaZincCompanyPdf(pdfDocument) {
             }
             rows[finalY].push({ text, x });
         }
-        // console.log(leftRows); return;
-        // const rows = leftRows.map((item, index) => [...item, ...rightRows[index]]);
         // console.log(rows); return;
         const sortedRows = Object.entries(rows)
             .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
@@ -163,7 +197,10 @@ async function extractKoreaZincCompanyPdf(pdfDocument) {
             });
         result.push(...sortedRows);
     }
+    // console.log(result);return;
     return result;
 }
 
 // extractTableToExcel('25000970 SLS DOCS.pdf');
+// extractTableToExcel('572500001952 DPL + COA.pdf');
+
