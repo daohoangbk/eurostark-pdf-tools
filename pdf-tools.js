@@ -8,35 +8,38 @@ import ExcelJS from 'exceljs';
 
 
 // Required to resolve __dirname in ES module context
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+// const __filename = fileURLToPath(import.meta.url);
+// const __dirname = path.dirname(__filename);
 
 // Path to cmaps folder inside node_modules
 // const cMapUrl = path.resolve(__dirname, 'node_modules/pdfjs-dist/cmaps/');
-const cMapUrl = path.join(__dirname, 'node_modules/pdfjs-dist/cmaps/'); // ✅ MUST end with "/"
+// const cMapUrl = path.join(__dirname, 'node_modules/pdfjs-dist/cmaps/'); // ✅ MUST end with "/"
 
 
 async function extractTableToExcel(pdfPath) {
-    const pdfData = await pdfParse(dataBuffer);
+    const loadingTask = getDocument({
+        url: pdfPath,
+        cMapUrl: 'node_modules/pdfjs-dist/cmaps/',
+        // cMapUrl: path.join(process.cwd(), 'node_modules/pdfjs-dist/cmaps/'),
+        cMapPacked: true, // true for PDF.js default cMap format
+    });
 
-    const pdfBaseName = path.parse(pdfPath).name;
-    const excelPath = pdfBaseName + '.xlsx';
+    const pdfDocument = await loadingTask.promise;
 
-    const pdfText = pdfData.text;
-    // const lines = pdfData.text
-    //   .split('\n')
-    //   .map(line => line.trim())
-    //   .filter(line => line.length > 0); // Remove empty lines
+    const fullText = await getAllTextInPdf(pdfDocument);
 
-    // fs.writeFileSync('test.txt', lines.join('\n'), 'utf-8');
-    // console.log(pdfText);return;
     let excelData = [];
 
-    if (pdfText.includes('orea Zinc Co.,Ltd')) {
-        excelData = extractKoreaZincCompanyPdf(pdfData, pdfText);
+    // console.log(fullText.includes('Korea Zinc Company'));return;
+    if (fullText.includes('Korea Zinc Company')) {
+        excelData = await extractKoreaZincCompanyPdf(pdfDocument);
     } else {
 
     }
+    // console.log(excelData); return;
+    const pdfDir = path.dirname(pdfPath);
+    const pdfName = path.basename(pdfPath, '.pdf');
+    const excelPath = path.join(pdfDir, `${pdfName}.xlsx`);
 
     const workbook = new ExcelJS.Workbook();
     const sheet = workbook.addWorksheet();
@@ -46,35 +49,24 @@ async function extractTableToExcel(pdfPath) {
         sheet.addRow(row);
     }
 
-    await workbook.xlsx.writeFile('output.xlsx');
-    return;
-
-    // Assuming each row is separated by '\n' and columns by spaces or tabs
-    // const lines = pdfData.text.split('\n').filter(line => line.trim() !== '');
-
-    // const workbook = new ExcelJS.Workbook();
-    // const sheet = workbook.addWorksheet('Extracted Table');
-
-    lines.forEach((line, index) => {
-        // Split by multiple spaces or tabs
-        const row = line.trim().split(/\s{2,}|\t+/);
-        sheet.addRow(row);
-    });
-
     await workbook.xlsx.writeFile(excelPath);
-    console.log(`✅ Excel file saved to ${excelPath}`);
 }
 
-async function extractKoreaZincCompanyPdf(pdfData, pdfText) {
-    const loadingTask = getDocument({
-        url: pdfPath,
-        cMapUrl: 'node_modules/pdfjs-dist/cmaps/',
-        cMapPacked: true, // true for PDF.js default cMap format
-    });
-    console.log(123);
-    const pdfDocument = await loadingTask.promise;
-    console.log(`Number of pages: ${pdfDocument.numPages}`);
+async function getAllTextInPdf(pdfDocument) {
+    const pagePromises = Array.from({ length: pdfDocument.numPages }, (_, i) =>
+        pdfDocument.getPage(i + 1).then(page => page.getTextContent())
+    );
 
+    const pagesContent = await Promise.all(pagePromises);
+
+    const fullText = pagesContent
+        .flatMap(content => content.items.map(item => item.str))
+        .join(' ');
+
+    return fullText;
+}
+
+async function extractKoreaZincCompanyPdf(pdfDocument) {
     const result = [];
 
     for (let pageNum = 3; pageNum <= 4; pageNum++) {
