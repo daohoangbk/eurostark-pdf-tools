@@ -5,6 +5,9 @@ import path from 'path';
 // const pdfParse = require('pdf-parse');
 // const pdfjsLib = require("pdfjs-dist/build/pdf");
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
+// import { fromPath } from "pdf2pic";
+// import { pdf } from "pdf-to-img";
+// import { createWorker } from 'tesseract.js';
 import ExcelJS from 'exceljs';
 
 
@@ -77,6 +80,60 @@ async function extractTableToExcel(pdfPath) {
     } else if (fullText.includes('GLENCORE INTERNACIONAL')) {
         // console.log(123); return;
         excelData = await extractGlencoreInternacionalPdf(pdfDocument);
+    } else if (fullText.includes('ACCESS WORLD LOGISTICS')) {
+        excelData = await extractAccessWorldLogisticsTableInPdf(pdfDocument);
+    } else {
+        let counter = 1;
+        const document = await pdf(pdfPath, { scale: 3 });
+        for await (const image of document) {
+            await fs.writeFile(`page${counter}.png`, image);
+            counter++;
+        }
+
+
+        // you can also read a specific page number:
+        const page12buffer = await document.getPage(1)
+        return;
+
+        const outputDir = path.join(process.cwd(), "temp_images");
+        fs.mkdirSync(outputDir, { recursive: true });
+
+        // -------------- CONVERT PDF TO IMAGE ----------------
+        const converter = fromPath(pdfPath, {
+            density: 150,
+            saveFilename: "page",
+            savePath: outputDir,
+            format: "png",
+            width: 1200,
+            height: 1600,
+        });
+        console.log("📄 Converting PDF pages to images...");
+        const pageCount = 1; // Change as needed or detect automatically
+        const testT = await converter(pageCount, { responseType: "image" })
+        console.log(testT);
+        const images = [];
+        for (let i = 1; i <= pageCount; i++) {
+            const res = await converter(i);
+            console.log(123);
+            images.push(res.path);
+        }
+
+        // -------------- OCR EACH IMAGE ----------------
+        const worker = await createWorker("eng");
+        let fullText = "";
+
+        for (const imgPath of images) {
+            console.log("🔍 OCR on:", imgPath);
+            const { data } = await worker.recognize(imgPath);
+            fullText += data.text + "\n";
+        }
+
+        await worker.terminate();
+
+        // -------------- OUTPUT ----------------
+        const txtPath = pdfPath.replace(/\.pdf$/i, ".txt");
+        fs.writeFileSync(txtPath, fullText.trim());
+        console.log("✅ OCR text saved to:", txtPath);
     }
     // console.log(excelData); return;
     const pdfDir = path.dirname(pdfPath);
@@ -109,57 +166,34 @@ async function getAllTextInPdf(pdfDocument) {
 }
 
 async function extractKoreaZincCompanyPdf(pdfDocument) {
-    const result = [];
-
-    for (let pageNum = 3; pageNum <= 4; pageNum++) {
-        const page = await pdfDocument.getPage(pageNum);
-        const content = await page.getTextContent();
-        // console.log(content.items.splice(0, 50).filter(item => item.str.trim())); return;
-
-        // Step 1: group by y position (rows)
-        const rows = {};
-        for (const item of content.items) {
-            // console.log(item); return;
-            const text = item.str.trim();
-            if (!text) continue;
-
-            const y = Math.floor(item.transform[5]);    // y-position
-            const x = item.transform[4];                // x-position
-
-            let finalY = y;
-            if (rows[y]) {
-                finalY = y;
-            } else if (rows[y - 1]) {
-                finalY = y - 1;
-            } else if (rows[y + 1]) {
-                finalY = y + 1;
-            }
-
-            if (!rows[finalY]) {
-                rows[finalY] = [];
-            }
-            rows[finalY].push({ text, x });
-        }
-        // console.log(rows); return;
-        const sortedRows = Object.entries(rows)
-            .sort((a, b) => b[0] - a[0]) // top to bottom (higher y is lower on page)
-            .map(([_, items]) => {
-                return items.sort((a, b) => a.x - b.x).map(i => i.text);
-            });
-        result.push(...sortedRows);
-    }
+    const result = await extractTableInPdf(pdfDocument, 3, 4);
     return result;
 }
 
 async function extractGlencoreInternacionalPdf(pdfDocument) {
     const tableStartY = 164;
-    const tableEndY = 448;
-    const result = [];
+    const tableEndY = 449;
+    const result = await extractTableInPdf(pdfDocument, 1, pdfDocument.numPages, tableStartY, tableEndY);
+    // console.log(result);return;
+    return result;
+}
 
-    for (let pageNum = 1; pageNum <= pdfDocument.numPages; pageNum++) {
+async function extractAccessWorldLogisticsTableInPdf(pdfDocument) {
+    const tableStartY = 87;
+    const tableEndY = 523;
+    const result = await extractTableInPdf(pdfDocument, 1, pdfDocument.numPages, tableStartY, tableEndY, 2);
+    // console.log(result);return;
+    return result;
+}
+
+async function extractTableInPdf(pdfDocument, pageStartNum, pageEndNum, tableStartY = 0, tableEndY = -1, deviation = 1) {
+    const result = [];
+    // console.log(pageStartNum, pageEndNum, tableStartY, tableEndY, deviation);return;
+
+    for (let pageNum = pageStartNum; pageNum <= pageEndNum; pageNum++) {
         const page = await pdfDocument.getPage(pageNum);
         const content = await page.getTextContent();
-        // console.log(content.items.splice(800, 50).filter(item => item.str.trim())); return;
+        // console.log(content.items.splice(100, 50).filter(item => item.str.trim())); return;
 
         // Step 1: group by y position (rows)
         const rows = {};
@@ -171,23 +205,23 @@ async function extractGlencoreInternacionalPdf(pdfDocument) {
             const y = Math.floor(item.transform[5]);    // y-position
             const x = item.transform[4];                // x-position
 
-            if (y < tableStartY || y > tableEndY) {
-                continue;
-            }
+            if (y >= tableStartY && (tableEndY == -1 || y <= tableEndY)) {
+                let finalY = y;
 
-            let finalY = y;
-            if (rows[y]) {
-                finalY = y;
-            } else if (rows[y - 1]) {
-                finalY = y - 1;
-            } else if (rows[y + 1]) {
-                finalY = y + 1;
-            }
+                for (let i = y - deviation; i <= y + deviation; i++) {
+                    let isExist = false;
+                    if (rows[i]) {
+                        isExist = true;
+                        finalY = i;
+                        break;
+                    }
+                }
 
-            if (!rows[finalY]) {
-                rows[finalY] = [];
+                if (!rows[finalY]) {
+                    rows[finalY] = [];
+                }
+                rows[finalY].push({ text, x });
             }
-            rows[finalY].push({ text, x });
         }
         // console.log(rows); return;
         const sortedRows = Object.entries(rows)
@@ -203,4 +237,6 @@ async function extractGlencoreInternacionalPdf(pdfDocument) {
 
 // extractTableToExcel('25000970 SLS DOCS.pdf');
 // extractTableToExcel('572500001952 DPL + COA.pdf');
+// extractTableToExcel('DPL.pdf');
+// extractTableToExcel('DPL 092-000619-96 KZ SHG.pdf');
 
