@@ -7,4 +7,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .DS_Store
-
+images/
+.vscode/
+package-lock.json

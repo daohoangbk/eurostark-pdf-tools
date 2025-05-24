@@ -1,3 +1,6 @@
+import dotenv from 'dotenv';
+dotenv.config();
+
 import readline from 'readline';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
@@ -5,9 +8,8 @@ import path from 'path';
 // const pdfParse = require('pdf-parse');
 // const pdfjsLib = require("pdfjs-dist/build/pdf");
 import { getDocument } from "pdfjs-dist/legacy/build/pdf.mjs";
-// import { fromPath } from "pdf2pic";
-// import { pdf } from "pdf-to-img";
-// import { createWorker } from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
+import { DocumentAnalysisClient, AzureKeyCredential } from "@azure/ai-form-recognizer";
 import ExcelJS from 'exceljs';
 
 
@@ -74,66 +76,111 @@ async function extractTableToExcel(pdfPath) {
 
     let excelData = [];
 
-    // console.log(fullText.includes('Korea Zinc Company'));return;
     if (fullText.includes('Korea Zinc Company')) {
         excelData = await extractKoreaZincCompanyPdf(pdfDocument);
     } else if (fullText.includes('GLENCORE INTERNACIONAL')) {
-        // console.log(123); return;
         excelData = await extractGlencoreInternacionalPdf(pdfDocument);
     } else if (fullText.includes('ACCESS WORLD LOGISTICS')) {
         excelData = await extractAccessWorldLogisticsTableInPdf(pdfDocument);
     } else {
-        let counter = 1;
-        const document = await pdf(pdfPath, { scale: 3 });
-        for await (const image of document) {
-            await fs.writeFile(`page${counter}.png`, image);
-            counter++;
+        // image-base PDF
+        // OCR with Azure Form Recognizer
+
+        const endpoint = process.env.OCR_AZURE_ENDPOINT;
+        const apiKey = process.env.OCR_AZURE_API_KEY;
+
+        const client = new DocumentAnalysisClient(endpoint, new AzureKeyCredential(apiKey));
+
+        const fileStream = fs.createReadStream(pdfPath);
+        const poller = await client.beginAnalyzeDocument("prebuilt-layout", fileStream);
+
+        const result = await poller.pollUntilDone();
+
+        if (!result.tables || result.tables.length === 0) {
+            console.log("No tables found.");
+            return;
         }
 
+        for (const table of result.tables) {
+            const tableMap = [];
 
-        // you can also read a specific page number:
-        const page12buffer = await document.getPage(1)
-        return;
+            for (const cell of table.cells) {
+                if (!tableMap[cell.rowIndex]) tableMap[cell.rowIndex] = [];
+                tableMap[cell.rowIndex][cell.columnIndex] = cell.content.replace('}', '').trim();
+            }
 
-        const outputDir = path.join(process.cwd(), "temp_images");
-        fs.mkdirSync(outputDir, { recursive: true });
+            // Normalize: fill missing cells with empty strings
+            const normalized = tableMap.map(row => {
+                const maxCols = Math.max(...tableMap.map(r => (r?.length || 0)));
+                return Array.from({ length: maxCols }, (_, i) => row?.[i] || "");
+            });
 
-        // -------------- CONVERT PDF TO IMAGE ----------------
-        const converter = fromPath(pdfPath, {
-            density: 150,
-            saveFilename: "page",
-            savePath: outputDir,
-            format: "png",
-            width: 1200,
-            height: 1600,
-        });
-        console.log("📄 Converting PDF pages to images...");
-        const pageCount = 1; // Change as needed or detect automatically
-        const testT = await converter(pageCount, { responseType: "image" })
-        console.log(testT);
-        const images = [];
-        for (let i = 1; i <= pageCount; i++) {
-            const res = await converter(i);
-            console.log(123);
-            images.push(res.path);
+            excelData.push(normalized);
         }
 
-        // -------------- OCR EACH IMAGE ----------------
-        const worker = await createWorker("eng");
-        let fullText = "";
+        // excelData = [
+        //     [
+        //         ['S/N', 'LOT/CAST NO.', '', 'GR WT (KGS)', 'NT WT (KGS)'],
+        //         ['1', '2240212-23', '', '1,949.00', '1,948.00'],
+        //         ['2', '2240212-23', '', '', ''],
+        //         ['3', '2240212-23', '', '1,989.00', '1,988.00'],
+        //         ['4', '2240203-11', '', '', ''],
+        //         ['5', '2240203-19', '', '2,020.00', '2,019.00'],
+        //         ['6', '2240205-07', '', '', ''],
+        //         ['7', '2240212-23', '', '1,978.00', '1,977.00'],
+        //         ['8', '2240205-07', '', '', ''],
+        //         ['9', '2240212-23', '', '1,968.00', '1,967.00'],
+        //         ['10', '2240212-23', '', '', ''],
+        //         ['11', '2240212-09', '', '2,034.00', '2,033.00'],
+        //         ['12', '2240203-11', '', '', ''],
+        //         ['13', '2240203-15', '', '2,010.00', '2,009.00'],
+        //         ['14', '2240203-15', '', '', ''],
+        //         ['15', '2240212-19', '', '1,989.00', '1,988.00'],
+        //         ['16', '2240203-17', '', '', ''],
+        //         ['17', '2240203-15', '', '2,029.00', '2,028.00'],
+        //         ['18', '2240212-19', '', '', ''],
+        //         ['19', '2240203-09', '', '2,005.00', '2,004.00'],
+        //         ['20', '2240217-23', '', '', ''],
+        //         ['21', '2240203-09', '', '2,012.00', '2,011.00'],
+        //         ['22', '2240127-23', '', '', ''],
+        //         ['23', '2240203-17', '', '2,017.00', '2,016.00'],
+        //         ['24', '2240203-17', '', '', ''],
+        //         ['25', '2240213-01', '', '1,020.00', '1,019.00'],
+        //         ['TOTAL :', '25', '', '25,020.00', '25,007.00']
+        //     ],
+        //     [
+        //         ['S/N', 'LOTICAST NO.', '', 'GR WT (KGS)', 'NT WT (KGS)'],
+        //         ['1', '2231125-15', '', '2,010.00', '2,009.00'],
+        //         ['2', '2231127-05', '', '', ''],
+        //         ['3', '2231127-05', '', '2,002.00', '2,001.00'],
+        //         ['4', '2231125-17', '', '', ''],
+        //         ['5', '2231125-15', '', '2,016.00', '2,015.00'],
+        //         ['6', '2231127-05', '', '', ''],
+        //         ['7', '2231127-05', '', '1,998.00', '3 1,997.00'],
+        //         ['8', '2231125-17', '', '', ''],
+        //         ['9', '2231127-05', '3', '2,006.00', '2,005.00'],
+        //         ['10', '2231127-03', '', '', ''],
+        //         ['11', '2231127-05', '', '1,990.00', '1,989.00'],
+        //         ['12', '2231127-05', '', '', ''],
+        //         ['13', '2231127-05', '', '1,976.00', '1,975.00'],
+        //         ['14', '2231127-05', '', '', ''],
+        //         ['15', '2231127-05', '', '2,016.00', '2,015.00'],
+        //         ['16', '2231127-03', '', '', ''],
+        //         ['17', '2231127-05', '', '1,989.00', '1,988.00'],
+        //         ['18', '2231125-17', '', '', ''],
+        //         ['19', '2231127-05', '', '2,028.00', '2,027.00'],
+        //         ['20', '2231127-05', '', '', ''],
+        //         ['21', '2231127-05', '', '1,985.00', '1,984.00'],
+        //         ['22', '2231125-15', '', '', ''],
+        //         ['23', '2231127-05', '', '2,006.00', '2,005.00'],
+        //         ['24', '2231127-03', '', '', ''],
+        //         ['25', '2231128-21', '', '987.00', '986.00'],
+        //         ['TOTAL', ': 25', '', '25,009.00', '24,996.00']
+        //     ]
+        // ];
 
-        for (const imgPath of images) {
-            console.log("🔍 OCR on:", imgPath);
-            const { data } = await worker.recognize(imgPath);
-            fullText += data.text + "\n";
-        }
-
-        await worker.terminate();
-
-        // -------------- OUTPUT ----------------
-        const txtPath = pdfPath.replace(/\.pdf$/i, ".txt");
-        fs.writeFileSync(txtPath, fullText.trim());
-        console.log("✅ OCR text saved to:", txtPath);
+        excelData = excelData.flat(1);
+        // console.log(excelData); // For debugging
     }
     // console.log(excelData); return;
     const pdfDir = path.dirname(pdfPath);
